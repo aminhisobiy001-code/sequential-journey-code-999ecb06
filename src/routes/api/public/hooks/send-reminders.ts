@@ -2,14 +2,29 @@ import { createFileRoute } from "@tanstack/react-router";
 
 const TG_API = "https://api.telegram.org";
 
+function miniAppButton() {
+  const url = process.env.MINI_APP_URL || process.env.VITE_MINI_APP_URL;
+  if (!url) return undefined;
+  return {
+    inline_keyboard: [[{ text: "📱 Ilovani ochish", web_app: { url } }]],
+  };
+}
+
 async function tgSend(chatId: number, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
   try {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+    };
+    const rm = miniAppButton();
+    if (rm) body.reply_markup = rm;
     await fetch(`${TG_API}/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+      body: JSON.stringify(body),
     });
   } catch (e) {
     console.error("tg send failed", e);
