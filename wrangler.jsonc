@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sequential-journey-code-999ecb05",
+  "main": "./dist/server/server.js",
+  "compatibility_date": "2026-06-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
