@@ -42,6 +42,16 @@ function runtimeEnv(env: unknown): RuntimeEnv {
   return typeof env === "object" && env !== null ? (env as RuntimeEnv) : {};
 }
 
+function applyRuntimeEnvToProcess(env: unknown) {
+  const workerEnv = runtimeEnv(env);
+
+  for (const [key, value] of Object.entries(workerEnv)) {
+    if (typeof value === "string" && process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
+
 function getTelegramBotToken(env: unknown): string | undefined {
   return runtimeEnv(env).TELEGRAM_BOT_TOKEN ?? process.env.TELEGRAM_BOT_TOKEN;
 }
@@ -67,6 +77,7 @@ function maybeRewriteTelegramTokenWebhook(request: Request, env: unknown): Reque
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      applyRuntimeEnvToProcess(env);
       const handler = await getServerEntry();
       const response = await handler.fetch(
         maybeRewriteTelegramTokenWebhook(request, env),
