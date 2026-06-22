@@ -1,7 +1,9 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
+import { ensureUserProfile } from "@/lib/auth-profile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,7 +38,14 @@ function AuthPage() {
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (!error && data.user) {
+      const { error: profileError } = await ensureProfileSafely(data.user);
+      if (profileError) {
+        setLoading(false);
+        return toast.error(`Profil yaratilmadi: ${profileError.message}`);
+      }
+    }
     setLoading(false);
     if (error) return toast.error(error.message);
     toast.success("Xush kelibsiz!");
@@ -46,7 +55,7 @@ function AuthPage() {
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -54,9 +63,30 @@ function AuthPage() {
         data: { full_name: fullName },
       },
     });
+    if (!error && data.session && data.user) {
+      const { error: profileError } = await ensureProfileSafely(data.user);
+      if (profileError) {
+        setLoading(false);
+        return toast.error(`Profil yaratilmadi: ${profileError.message}`);
+      }
+    }
     setLoading(false);
     if (error) return toast.error(error.message);
-    toast.success("Ro'yxatdan o'tdingiz! Pochtangizni tasdiqlang.");
+    if (data.session) {
+      toast.success("Ro'yxatdan o'tish yakunlandi!");
+      navigate({ to: "/dashboard" });
+    } else {
+      toast.success("Ro'yxatdan o'tdingiz! Pochtangizni tasdiqlang, keyin tizimga kiring.");
+    }
+  };
+
+  const ensureProfileSafely = async (user: User) => {
+    try {
+      await ensureUserProfile(user);
+      return { error: null };
+    } catch (error) {
+      return { error: error as Error };
+    }
   };
 
   const handleGoogle = async () => {
