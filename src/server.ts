@@ -8,6 +8,9 @@ type ServerEntry = {
 };
 type RuntimeEnv = Record<string, string | undefined>;
 
+const TELEGRAM_PATH_TOKEN_HEADER = "X-Internal-Telegram-Path-Token";
+const TELEGRAM_TOKEN_PATH_RE = /^\d+:[A-Za-z0-9_-]{20,}$/;
+
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
 async function getServerEntry(): Promise<ServerEntry> {
@@ -60,18 +63,29 @@ function maybeRewriteTelegramTokenWebhook(request: Request, env: unknown): Reque
   if (request.method !== "POST") return request;
 
   const token = getTelegramBotToken(env);
-  if (!token) return request;
-
   const url = new URL(request.url);
   const normalizedPath = url.pathname.replace(/\/+$|^\/+/g, "");
 
   // Some Telegram bot hosting examples use /<BOT_TOKEN> as the webhook path.
   // Keep the canonical TanStack route working while accepting that deployment
   // style too, so existing Telegram setWebhook URLs do not 404.
-  if (normalizedPath !== token) return request;
+  if (normalizedPath !== token && !TELEGRAM_TOKEN_PATH_RE.test(normalizedPath)) {
+    return request;
+  }
 
   url.pathname = "/api/public/telegram/webhook";
-  return new Request(url.toString(), request);
+  const headers = new Headers(request.headers);
+  headers.set(TELEGRAM_PATH_TOKEN_HEADER, normalizedPath);
+
+  return new Request(url.toString(), {
+    body: request.body,
+    cf: request.cf,
+    duplex: "half",
+    headers,
+    method: request.method,
+    redirect: request.redirect,
+    signal: request.signal,
+  } as RequestInit & { cf?: unknown; duplex: "half" });
 }
 
 export default {

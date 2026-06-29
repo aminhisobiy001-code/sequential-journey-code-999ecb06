@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 const TG_API = "https://api.telegram.org";
+const TELEGRAM_PATH_TOKEN_HEADER = "X-Internal-Telegram-Path-Token";
 
 type TelegramFrom = {
   username?: string;
@@ -132,8 +133,12 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const token = process.env.TELEGRAM_BOT_TOKEN;
+        const token =
+          process.env.TELEGRAM_BOT_TOKEN ??
+          request.headers.get(TELEGRAM_PATH_TOKEN_HEADER) ??
+          undefined;
         if (!token) return new Response("Not configured", { status: 500 });
+        process.env.TELEGRAM_BOT_TOKEN ??= token;
 
         const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
         if (expectedSecret) {
