@@ -29,7 +29,6 @@ type TelegramUpdate = {
   callback_query?: TelegramCallbackQuery;
 };
 
-
 function getMiniAppUrl(): string | null {
   return getWorkerRuntime().miniAppUrl || null;
 }
@@ -228,14 +227,14 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
         ) => tgSendWithToken(token, targetChatId, text, withButton, replyMarkup, fallbackAppUrl);
         try {
           const expectedSecret = runtime.telegramWebhookSecret;
-        if (expectedSecret) {
+          if (expectedSecret) {
             const got = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
             if (got !== expectedSecret) {
               return new Response("Unauthorized", { status: 401 });
             }
           }
 
-        let update: TelegramUpdate;
+          let update: TelegramUpdate;
           try {
             update = (await request.json()) as TelegramUpdate;
           } catch {
@@ -276,9 +275,8 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               .maybeSingle();
             return data;
           };
-        };
 
-        // ---------- Consent callbacks ----------
+          // ---------- Consent callbacks ----------
           const provisionTelegramUser = async (fullName?: string | null) => {
             const email = emailForChat(chatId);
             const displayName = fullName || fromFirstName || fromUsername || `user${chatId}`;
@@ -387,9 +385,7 @@ Fikringiz o'zgarsa, pastdagi tugma orqali so'rovni qayta oching.`,
 Bekor qilish: /cancel`,
             );
             return Response.json({ ok: true });
-          
           }
-          
 
           if (callbackData) return Response.json({ ok: true, ignored: true });
 
