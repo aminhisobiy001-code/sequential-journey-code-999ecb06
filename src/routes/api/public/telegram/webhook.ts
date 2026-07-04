@@ -285,7 +285,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             return data;
           };
 
-          const provisionTelegramUser = async (fullName?: string | null, forceNewPassword = false) => {
+          const provisionTelegramUser = async (fullName?: string | null) => {
             const email = emailForChat(chatId);
             const displayName = fullName || fromFirstName || fromUsername || `user${chatId}`;
             const tgUser = fromUsername ?? null;
@@ -294,41 +294,25 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             if (listErr) throw listErr;
             const existingUser = userList.users.find((user) => user.email === email);
             let userId = existingUser?.id;
-
-            // Only a brand-new account gets a freshly generated password. Existing
-            // accounts keep whatever password the user already has, unless a reset
-            // is explicitly requested (forceNewPassword), so /start never silently
-            // invalidates a password the user is already using to log in.
-            let password: string | null = null;
+            const created = !userId;
 
             if (userId) {
-              if (forceNewPassword) {
-                password = randomTelegramPassword();
-                const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-                  password,
-                  email_confirm: true,
-                  user_metadata: { full_name: displayName },
-                });
-                if (updateErr) throw updateErr;
-              } else {
-                const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-                  email_confirm: true,
-                  user_metadata: { full_name: displayName },
-                });
-                if (updateErr) throw updateErr;
-              }
+              const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+                email_confirm: true,
+                user_metadata: { full_name: displayName },
+              });
+              if (updateErr) throw updateErr;
             } else {
-              password = randomTelegramPassword();
-              const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser(
-                {
+              // No password is set here on purpose: login now happens exclusively
+              // through the auto-login link sent below, never a typed password.
+              const { data: createdUser, error: createErr } =
+                await supabaseAdmin.auth.admin.createUser({
                   email,
-                  password,
                   email_confirm: true,
                   user_metadata: { full_name: displayName },
-                },
-              );
+                });
               if (createErr) throw createErr;
-              userId = created.user?.id;
+              userId = createdUser.user?.id;
             }
 
             if (!userId) throw new Error("Supabase user yaratilmadi");
@@ -360,27 +344,43 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
 
             return {
               profile: profile ?? { id: userId, full_name: displayName, telegram_username: tgUser },
-              created: !existingUser,
-              password,
+              created,
+              email,
               tgUser,
             };
           };
 
+          // Generates a one-time Supabase magic-link token and turns it into a URL
+          // pointing at our own /auth-callback page, which calls verifyOtp() and
+          // signs the user in automatically — no login/password typing required.
+          const buildAutoLoginUrl = async (email: string) => {
+            const { data, error } = await supabaseAdmin.auth.admin.generateLink({
+              type: "magiclink",
+              email,
+            });
+            const hashedToken = data?.properties?.hashed_token;
+            if (error || !hashedToken) {
+              throw error ?? new Error("Kirish havolasi yaratilmadi");
+            }
+            const url = new URL("auth-callback", appLinkText(request));
+            url.searchParams.set("token_hash", hashedToken);
+            url.searchParams.set("type", "magiclink");
+            return url.toString();
+          };
+
           if (text === "/start") {
             try {
-              const { profile, created, password, tgUser } = await provisionTelegramUser();
+              const { profile, created, email } = await provisionTelegramUser();
               await supabaseAdmin
                 .from("telegram_pending_registrations")
                 .delete()
                 .eq("chat_id", chatId);
-              const loginInfo = password
-                ? loginText(chatId, password, profile.telegram_username ?? tgUser)
-                : `🌐 <b>Tizimga kirish uchun:</b>\n\nLogin: ${profile.telegram_username ? `<code>${profile.telegram_username}</code> yoki ` : ""}user_id <code>${chatId}</code>\nParol: oldin tanlagan/olgan parolingiz o'zgarmadi.\n\nParolni unutgan bo'lsangiz: /resetpassword`;
+              const autoLoginUrl = await buildAutoLoginUrl(email);
               await send(
                 chatId,
-                `👋 Salom, <b>${profile.full_name ?? fromFirstName ?? "do'st"}</b>!\n\n${created ? "✅ Hisobingiz yaratildi va bazaga saqlandi." : "✅ Hisobingiz bazada yangilandi."}${isAdminChat(chatId) ? "\n\n🛡 Sizga admin huquqi berildi." : ""}\n\n${loginInfo}\n\nPastdagi menyudan <b>🔗 Hozirgi havola</b> tugmasini bosib ilovani ochishingiz mumkin.`,
+                `👋 Salom, <b>${profile.full_name ?? fromFirstName ?? "do'st"}</b>!\n\n${created ? "✅ Hisobingiz yaratildi." : "✅ Hisobingiz allaqachon faol."}${isAdminChat(chatId) ? "\n\n🛡 Sizga admin huquqi berildi." : ""}\n\n🌐 <b>Ilovaga kirish:</b>\n${autoLoginUrl}\n\nLogin yoki parol kiritish shart emas — havola (yoki pastdagi tugma) orqali avtomatik kirasiz.`,
                 false,
-                startKeyboard(request),
+                { inline_keyboard: [[{ text: "📱 Ilovani ochish", web_app: { url: autoLoginUrl } }]] },
               );
             } catch (error) {
               console.error(error);
@@ -394,17 +394,28 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
 
           if (text === "/resetpassword") {
             try {
-              const { profile, password, tgUser } = await provisionTelegramUser(undefined, true);
-              if (!password) throw new Error("Parol yaratilmadi");
+              const email = emailForChat(chatId);
+              const { data: userList, error: listErr } = await supabaseAdmin.auth.admin.listUsers();
+              if (listErr) throw listErr;
+              const existingUser = userList.users.find((user) => user.email === email);
+              if (!existingUser) {
+                await send(chatId, "❌ Hisobingiz topilmadi. Avval /start yuboring.");
+                return Response.json({ ok: true });
+              }
+              const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
+                existingUser.id,
+                { password: randomTelegramPassword() },
+              );
+              if (updateErr) throw updateErr;
               await send(
                 chatId,
-                `🔑 Parolingiz yangilandi!\n\n${loginText(chatId, password, profile.telegram_username ?? tgUser)}`,
+                "🔑 Xavfsizlik ma'lumotlaringiz yangilandi.\n\nIlovaga kirish uchun /start buyrug'ini yuboring — u orqali keladigan havola sizni login/parolsiz avtomatik tizimga kiritadi.",
               );
             } catch (error) {
               console.error(error);
               await send(
                 chatId,
-                `❌ Parolni yangilashda xatolik: ${publicProvisioningError(error, request)}`,
+                `❌ Xatolik: ${publicProvisioningError(error, request)}`,
               );
             }
             return Response.json({ ok: true });
@@ -468,17 +479,17 @@ Bekor qilish: /cancel`,
           // ---------- Commands ----------
           if (text === "/help" || text === "/register") {
             try {
-              const { profile, created, password, tgUser } = await provisionTelegramUser();
+              const { profile, created, email } = await provisionTelegramUser();
               await supabaseAdmin
                 .from("telegram_pending_registrations")
                 .delete()
                 .eq("chat_id", chatId);
+              const autoLoginUrl = await buildAutoLoginUrl(email);
               await send(
                 chatId,
-                `👋 Salom, <b>${profile.full_name ?? fromFirstName ?? "do'st"}</b>!\n\n${created ? "✅ Hisobingiz yaratildi va web ilova bilan ulandi." : "✅ Hisobingiz web ilova bilan ulangan."}${isAdminChat(chatId) ? "\n\n🛡 Sizga admin huquqi berildi." : ""}\n\n${loginText(chatId, password, profile.telegram_username ?? tgUser)}\n\nIlovani Telegramda ochish uchun pastdagi tugmani bosing 👇`,
-                true,
-                undefined,
-                new URL("/", request.url).toString(),
+                `👋 Salom, <b>${profile.full_name ?? fromFirstName ?? "do'st"}</b>!\n\n${created ? "✅ Hisobingiz yaratildi va web ilova bilan ulandi." : "✅ Hisobingiz web ilova bilan ulangan."}${isAdminChat(chatId) ? "\n\n🛡 Sizga admin huquqi berildi." : ""}\n\n🌐 <b>Ilovaga kirish:</b>\n${autoLoginUrl}\n\nLogin yoki parol kiritish shart emas — havola (yoki pastdagi tugma) orqali avtomatik kirasiz.`,
+                false,
+                { inline_keyboard: [[{ text: "📱 Ilovani ochish", web_app: { url: autoLoginUrl } }]] },
               );
             } catch (error) {
               console.error(error);
