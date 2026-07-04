@@ -66,30 +66,30 @@ export function AppShell({ title, actions, children }: { title: string; actions?
             <h1 className="font-display text-xl font-bold md:text-2xl">{title}</h1>
             <div className="flex items-center gap-2">{actions}<NotificationsBell /></div>
           </div>
-          <nav className="flex gap-1 overflow-x-auto border-t border-border/40 px-2 py-2 md:hidden">
-            {nav.map((item) => {
-              const active = pathname === item.to;
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  className={cn(
-                    "flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs",
-                    active ? "bg-primary/15 text-primary" : "text-muted-foreground",
-                  )}
-                >
-                  <Icon className="size-3.5" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
         </header>
         <main className="aurora-bg min-h-[calc(100vh-4rem)]">
-          <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">{children}</div>
+          <div className="mx-auto max-w-6xl px-4 py-6 pb-24 md:px-8 md:py-10 md:pb-10">{children}</div>
         </main>
       </div>
+      <nav className="fixed inset-x-0 bottom-0 z-20 flex items-stretch justify-around border-t border-border/60 bg-card/95 backdrop-blur md:hidden">
+        {nav.map((item) => {
+          const active = pathname === item.to || pathname.startsWith(item.to + "/");
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={cn(
+                "flex flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[11px] transition-colors",
+                active ? "text-primary" : "text-muted-foreground",
+              )}
+            >
+              <Icon className="size-5" />
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 }
