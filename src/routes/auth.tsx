@@ -30,16 +30,18 @@ function AuthPage() {
   }, [navigate]);
 
   useEffect(() => {
-    // This page is only ever reached by a plain web browser without a
-    // session (Telegram Mini App visits sign in automatically in
-    // __root.tsx and never land here). Login/password no longer exist —
-    // the only way in is through the bot — so we send people there
-    // automatically, with the button below as a manual fallback in case
-    // the browser blocks the auto-redirect.
+    // Agar biz Telegram Mini App ichida bo'lsak, __root.tsx hali fonda
+    // initData orqali login qilishga urinayotgan bo'lishi mumkin.
+    // window.location.assign() butun sahifani (va shu bilan birga
+    // tugamagan login so'rovini) o'ldiradi — shuning uchun Mini App
+    // ichida bo'lsak, botga hech qachon avto-redirect qilmaymiz.
     if (!BOT_URL) return;
+    if (typeof window !== "undefined" && window.Telegram?.WebApp?.initData) {
+      return;
+    }
     const timer = setTimeout(() => {
       window.location.assign(BOT_URL);
-    }, 1200);
+    }, 4000);
     return () => clearTimeout(timer);
   }, []);
 
